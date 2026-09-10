@@ -1,0 +1,16 @@
+.DS_Store
+.build/
+build/
+DerivedData/
+*.xcuserstate
+dist/
+.swiftpm/
+xcuserdata/
+# Original Xcode starter project; the maintained application uses Package.swift.
+DS PeakOff Peak/
+.env
+.env.*
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile
