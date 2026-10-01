@@ -44,7 +44,7 @@ struct WidgetView: View {
     private var header: some View {
         HStack(spacing: 8) {
             PulsingDot(color: accent)
-            Text(status.isPeak ? "PEAK — DOUBLE RATE" : "OFF-PEAK — 50% OFF")
+            Text(headerTitle)
                 .font(.system(size: 10.5, weight: .heavy, design: .rounded))
                 .tracking(0.7)
                 .foregroundStyle(accent)
@@ -65,6 +65,12 @@ struct WidgetView: View {
                 .fixedSize()
             }
         }
+    }
+
+    /// Rate first, reason second: a holiday shows as off-peak, with the cause appended.
+    private var headerTitle: String {
+        if status.isPeak { return "PEAK — DOUBLE RATE" }
+        return status.isHolidaySuspended ? "OFF-PEAK — 50% OFF · CN HOLIDAY" : "OFF-PEAK — 50% OFF"
     }
 
     private var settingsIcon: some View {
@@ -105,8 +111,17 @@ struct WidgetView: View {
     private var details: some View {
         VStack(alignment: .leading, spacing: 4) {
             detailRow("globe.europe.africa.fill", ScheduleSummary.utcLine(model.schedule))
-            detailRow("clock.fill", ScheduleSummary.localDayLine(model.schedule, day: model.now, timeZone: timeZone))
+            detailRow("clock.fill", ScheduleSummary.localDayLine(model.schedule,
+                                                                day: model.now,
+                                                                timeZone: timeZone,
+                                                                holiday: status.activeHoliday))
             detailRow("arrow.forward.circle.fill", ScheduleSummary.nextWindowLine(status, now: model.now, timeZone: timeZone))
+            if let holiday = ScheduleSummary.holidayLine(status) {
+                detailRow("flag.fill", holiday)
+            }
+            if let warning = ScheduleSummary.holidayDataWarning(status) {
+                detailRow("exclamationmark.triangle.fill", warning)
+            }
         }
     }
 

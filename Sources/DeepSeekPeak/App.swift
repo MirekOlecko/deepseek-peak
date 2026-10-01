@@ -17,9 +17,17 @@ struct DeepSeekPeakMain {
             return
         }
 
+        // Diagnostic mode: prints the loaded schedule, holidays and current state.
+        if arguments.contains("--status") {
+            ConfigDiagnostics.run(at: fixedDateArgument(in: arguments))
+            exit(0)
+        }
+
         // Helper mode: render a widget preview to a PNG file.
         if let index = arguments.firstIndex(of: "--render"), index + 1 < arguments.count {
-            PreviewRenderer.render(to: arguments[index + 1], compact: arguments.contains("--compact"))
+            PreviewRenderer.render(to: arguments[index + 1],
+                                   compact: arguments.contains("--compact"),
+                                   at: fixedDateArgument(in: arguments))
             exit(0)
         }
 
@@ -29,6 +37,15 @@ struct DeepSeekPeakMain {
         application.delegate = appDelegate
         application.setActivationPolicy(.accessory)
         application.run()
+    }
+
+    /// Optional "--at ISO8601" argument, used to inspect any date.
+    @MainActor
+    private static func fixedDateArgument(in arguments: [String]) -> Date? {
+        guard let index = arguments.firstIndex(of: "--at"), index + 1 < arguments.count else {
+            return nil
+        }
+        return ISO8601DateFormatter().date(from: arguments[index + 1])
     }
 
     /// Runs the diagnostic and never returns.

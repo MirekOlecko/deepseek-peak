@@ -17,11 +17,16 @@ enum ScheduleStore {
     }
 
     static func load() -> PeakSchedule {
-        guard let data = try? Data(contentsOf: fileURL),
-              let schedule = try? JSONDecoder().decode(PeakSchedule.self, from: data),
-              !schedule.rules.isEmpty else {
-            return .deepSeekDefault
+        let holidays = HolidayStore.load()
+        var schedule: PeakSchedule
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode(PeakSchedule.self, from: data),
+           !decoded.rules.isEmpty {
+            schedule = decoded
+        } else {
+            schedule = .deepSeekDefault
         }
+        schedule.holidays = holidays
         return schedule
     }
 

@@ -31,7 +31,10 @@ fi
 # Downloaded releases may need approval in System Settings > Privacy & Security.
 codesign --force --sign - "$APP_DIR"
 codesign --verify --strict "$APP_DIR"
-lipo "$APP_DIR/Contents/MacOS/DeepSeekPeak" -verify_arch arm64 x86_64
+# One architecture per invocation: newer lipo rejects several names after -verify_arch.
+for arch in arm64 x86_64; do
+    lipo "$APP_DIR/Contents/MacOS/DeepSeekPeak" -verify_arch "$arch"
+done
 
 echo "==> done: $APP_DIR"
 echo "    run:  open \"$APP_DIR\""

@@ -31,8 +31,9 @@ struct SettingsMenuContent: View {
 
         Divider()
 
-        Button("Reload schedule") { controller.reloadSchedule() }
+        Button("Reload schedule & holiday dates") { controller.reloadSchedule() }
         Button("Edit schedule (schedule.json)") { controller.openScheduleFile() }
+        Button("Edit holiday dates (holidays.json)") { controller.openHolidayFile() }
         Button("DeepSeek pricing in browser") { controller.openPricingDocs() }
 
         Divider()

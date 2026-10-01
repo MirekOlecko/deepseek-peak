@@ -6,7 +6,10 @@ APP_DIR="build/DeepSeekPeak.app"
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_DIR/Contents/Info.plist")
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 2
 codesign --verify --strict "$APP_DIR"
-lipo "$APP_DIR/Contents/MacOS/DeepSeekPeak" -verify_arch arm64 x86_64
+# One architecture per invocation: newer lipo rejects several names after -verify_arch.
+for arch in arm64 x86_64; do
+    lipo "$APP_DIR/Contents/MacOS/DeepSeekPeak" -verify_arch "$arch"
+done
 mkdir -p dist
 NAME="DeepSeekPeak-${VERSION}-macOS-universal"
 [[ ! -e "dist/$NAME.zip" && ! -e "dist/$NAME.dmg" ]] || { echo 'Release files already exist; do not overwrite a published version.' >&2; exit 2; }

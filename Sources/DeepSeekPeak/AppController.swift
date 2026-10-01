@@ -22,12 +22,22 @@ final class AppController {
 
     func start() {
         ScheduleStore.writeDefaultIfMissing()
+        HolidayStore.writeDefaultIfMissing()
 
         panelController = WidgetPanelController(model: model, preferences: preferences, controller: self)
         statusBarController = StatusBarController(model: model, preferences: preferences, controller: self)
 
         model.onTransition = { [weak self] period, status in
             self?.handleTransition(period: period, status: status)
+        }
+
+        model.onHolidaySuspension = { [weak self] holiday, status in
+            guard let self, self.preferences.notificationsEnabled else { return }
+            self.notifier.post(
+                title: "DeepSeek peak skipped — Chinese public holiday",
+                body: holiday.name + " (" + ScheduleSummary.holidayRangeLabel(holiday)
+                    + ", Beijing dates): DeepSeek bills the whole day as off-peak. "
+                    + ScheduleSummary.nextWindowLine(status, now: Date(), timeZone: TimeZone.current) + ".")
         }
 
         if preferences.notificationsEnabled {
@@ -93,6 +103,15 @@ final class AppController {
 
     func openScheduleFile() {
         ScheduleStore.openInEditor()
+    }
+
+    func openHolidayFile() {
+        HolidayStore.openInEditor()
+    }
+
+    func openChineseHolidayNotice() {
+        guard let url = URL(string: "https://www.gov.cn/zhengce/") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     func openPricingDocs() {

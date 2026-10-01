@@ -12,13 +12,21 @@ final class ClockModel: ObservableObject {
 
     /// Called the moment the rate changes (peak <-> off-peak).
     var onTransition: ((RatePeriod, RateStatus) -> Void)?
+    /// Called once per holiday that suspends peak windows on a day that would
+    /// otherwise be a peak day.
+    var onHolidaySuspension: ((ChineseHoliday, RateStatus) -> Void)?
 
     private var timer: Timer?
+    /// Holiday already announced in this session; seeded at launch so starting the
+    /// app during a holiday does not post a notification.
+    private var announcedHolidayStart: String?
 
     init(schedule: PeakSchedule, now: Date = Date()) {
         self.schedule = schedule
         self.now = now
-        self.status = schedule.status(at: now)
+        let initial = schedule.status(at: now)
+        self.status = initial
+        self.announcedHolidayStart = initial.activeHoliday?.start
     }
 
     deinit {
@@ -47,6 +55,12 @@ final class ClockModel: ObservableObject {
         status = updated
         if changed {
             onTransition?(updated.period, updated)
+        }
+        if let holiday = updated.activeHoliday,
+           holiday.start != announcedHolidayStart,
+           schedule.wouldBePeakDayWithoutHolidays(on: date) {
+            announcedHolidayStart = holiday.start
+            onHolidaySuspension?(holiday, updated)
         }
     }
 

@@ -53,7 +53,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let status = model.status
         let marker = status.isPeak ? "🔴" : "🟢"
         button.title = marker + " " + DurationFormat.menuBarShort(status.remaining(at: model.now))
-        button.toolTip = ScheduleSummary.headline(status, now: model.now, timeZone: .current)
+        var tooltip = ScheduleSummary.headline(status, now: model.now, timeZone: .current)
+        if let holiday = status.activeHoliday {
+            tooltip += " · " + holiday.name + " in China"
+        }
+        if let year = status.holidayDataMissingYear {
+            tooltip += " · holiday dates for " + String(year) + " missing"
+        }
+        button.toolTip = tooltip
     }
 
     // MARK: - NSMenuDelegate
@@ -65,7 +72,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(info(ScheduleSummary.headline(status, now: model.now, timeZone: zone)))
         menu.addItem(info(ScheduleSummary.nextWindowLine(status, now: model.now, timeZone: zone)))
-        menu.addItem(info(ScheduleSummary.localDayLine(model.schedule, day: model.now, timeZone: zone)))
+        menu.addItem(info(ScheduleSummary.localDayLine(model.schedule,
+                                                       day: model.now,
+                                                       timeZone: zone,
+                                                       holiday: status.activeHoliday)))
+        if let holiday = ScheduleSummary.holidayLine(status) {
+            menu.addItem(info(holiday))
+        }
+        if let warning = ScheduleSummary.holidayDataWarningLong(status) {
+            menu.addItem(info(warning))
+        }
+        menu.addItem(info(ScheduleSummary.holidayCoverageLine(model.schedule)))
         menu.addItem(.separator())
 
         menu.addItem(toggle("Show widget", #selector(toggleWidget), isOn: preferences.widgetVisible))
@@ -76,8 +93,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(toggle("Launch at login", #selector(toggleLoginItem), isOn: controller.loginItemEnabled))
         menu.addItem(.separator())
 
-        menu.addItem(action("Reload schedule", #selector(reloadSchedule)))
+        menu.addItem(action("Reload schedule & holiday dates", #selector(reloadSchedule)))
         menu.addItem(action("Edit schedule (schedule.json)", #selector(openSchedule)))
+        menu.addItem(action("Edit holiday dates (holidays.json)", #selector(openHolidays)))
         menu.addItem(action("DeepSeek pricing in browser", #selector(openDocs)))
         menu.addItem(action("Move widget to default position", #selector(recenter)))
         menu.addItem(.separator())
@@ -109,6 +127,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func toggleLoginItem() { controller.toggleLoginItem() }
     @objc private func reloadSchedule() { controller.reloadSchedule() }
     @objc private func openSchedule() { controller.openScheduleFile() }
+    @objc private func openHolidays() { controller.openHolidayFile() }
     @objc private func openDocs() { controller.openPricingDocs() }
     @objc private func recenter() { controller.recenterWidget() }
     @objc private func quit() { controller.quit() }

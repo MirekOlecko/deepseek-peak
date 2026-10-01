@@ -2,18 +2,20 @@ import AppKit
 import SwiftUI
 import DeepSeekPeakCore
 
-/// Renders the widget to a PNG. Usage: DeepSeekPeak --render file.png [--compact]
+/// Renders the widget to a PNG. Usage: DeepSeekPeak --render file.png [--compact] [--at ISO8601]
+///
+/// `--at` freezes the clock, so holiday and peak behaviour can be rendered for any date.
 @MainActor
 enum PreviewRenderer {
 
-    static func render(to path: String, compact: Bool) {
+    static func render(to path: String, compact: Bool, at date: Date? = nil) {
         _ = NSApplication.shared
 
         let defaults = UserDefaults(suiteName: "DeepSeekPeakPreview") ?? .standard
         let preferences = Preferences(defaults: defaults)
         preferences.compact = compact
 
-        let model = ClockModel(schedule: .deepSeekDefault)
+        let model = ClockModel(schedule: .deepSeekDefault, now: date ?? Date())
         let controller = AppController()
 
         let content = WidgetView(model: model, preferences: preferences, controller: controller, rendersForPreview: true)

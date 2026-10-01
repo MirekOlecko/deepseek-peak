@@ -20,7 +20,7 @@ space, detailed when you want the next 24 hours at a glance.
 **macOS 13 Ventura or newer. One universal app for Apple Silicon and Intel.**
 
 1. Open [Latest release](https://github.com/MirekOlecko/deepseek-peak/releases/latest)
-   and download `DeepSeekPeak-1.0.0-macOS-universal.dmg` (or the ZIP).
+   and download `DeepSeekPeak-1.1.0-macOS-universal.dmg` (or the ZIP).
 2. Open the disk image and drag **DeepSeekPeak.app** to **Applications**.
 3. Launch it from Applications. The widget and menu bar indicator appear;
    there is deliberately no Dock icon.
@@ -40,6 +40,7 @@ have not been individually tested.
 ## Features
 
 - Green off-peak and red peak status, with a live countdown.
+- Chinese public holiday dates, so a holiday weekday is shown as off-peak and named.
 - Full widget with a 24-hour timeline and local-time schedule.
 - Compact mode with status, countdown and progress only.
 - Menu bar countdown and controls, even when the widget is hidden.
@@ -54,16 +55,24 @@ permission. Enable **Launch at login** after moving the app to Applications.
 ## Schedule and accuracy
 
 The bundled schedule follows [DeepSeek's official pricing documentation](https://api-docs.deepseek.com/quick_start/pricing/),
-checked on **10 September 2026**:
+checked on **1 October 2026**:
 
 | Peak window (UTC) | Days |
 | --- | --- |
-| 01:00–04:00 | Monday–Friday |
-| 06:00–10:00 | Monday–Friday |
+| 01:00–04:00 | Monday–Friday, excluding Chinese public holidays |
+| 06:00–10:00 | Monday–Friday, excluding Chinese public holidays |
 
-Outside those windows the documented off-peak rate is half the peak rate.
-Calculations use UTC; local labels follow your Mac's time zone, including daylight
-saving. Keep the Mac's clock accurate.
+Outside those windows the documented off-peak rate is half the peak rate. DeepSeek bills
+weekends and Chinese public holidays as off-peak **in full**, so a holiday weekday is
+never shown as peak. Calculations use UTC; local labels follow your Mac's time zone,
+including daylight saving. Keep the Mac's clock accurate.
+
+Holiday dates are the days published by China's State Council, the same days DeepSeek
+excludes. **2025 and 2026 are bundled**; during a holiday the widget names it
+("National Day in China (Oct 1-7) - peak suspended"). When the next year's notice has not
+been published yet, the app says so — "2027 holiday dates missing - weekdays shown as
+peak" — instead of quietly assuming a peak. Adding the new dates to `holidays.json`
+(see below) removes the warning without rebuilding the app.
 
 **This is a schedule indicator, not a live billing monitor.** It does not query
 DeepSeek, inspect your API usage, or automatically download pricing changes.
@@ -93,7 +102,8 @@ The file is created automatically on first launch (menu → **Edit schedule**). 
 
 ```json
 {
-  "note": "Peak: 01:00-04:00 and 06:00-10:00 UTC, Mon-Fri.",
+  "note": "Peak: 01:00-04:00 and 06:00-10:00 UTC, Mon-Fri, excluding Chinese public holidays.",
+  "excludeChineseHolidays": true,
   "rules": [
     { "weekdays": [2, 3, 4, 5, 6], "startMinuteUTC": 60,  "endMinuteUTC": 240 },
     { "weekdays": [2, 3, 4, 5, 6], "startMinuteUTC": 360, "endMinuteUTC": 600 }
@@ -103,9 +113,47 @@ The file is created automatically on first launch (menu → **Edit schedule**). 
 
 - `weekdays`: 1 = Sunday, 2 = Monday, ... 7 = Saturday,
 - `startMinuteUTC` / `endMinuteUTC`: minutes from UTC midnight (60 = 01:00, 240 = 04:00),
-- an `endMinuteUTC` less than or equal to `startMinuteUTC` means the window crosses midnight.
+- an `endMinuteUTC` less than or equal to `startMinuteUTC` means the window crosses midnight,
+- `excludeChineseHolidays`: `true` by default, matching DeepSeek's published rule. Set it
+  to `false` only for a custom schedule that has nothing to do with DeepSeek's price list.
 
-After saving the file: menu → **Reload schedule**.
+After saving the file: menu → **Reload schedule & holiday dates**.
+
+## Chinese public holidays — editable without recompiling
+
+Holiday dates follow the annual notice of China's State Council and live in their own file:
+
+```
+~/Library/Application Support/DeepSeekPeak/holidays.json
+```
+
+It is created automatically on first launch (menu → **Edit holiday dates**). The bundled
+dates are overlaid with this file, and a year listed here **replaces** the bundled year
+completely, so a corrected or newly published year needs no new build:
+
+```json
+{
+  "source": "State Council notice for 2027",
+  "years": {
+    "2027": [
+      { "name": "New Year's Day",   "start": "2027-01-01", "end": "2027-01-03" },
+      { "name": "Spring Festival",  "start": "2027-02-05", "end": "2027-02-12" }
+    ]
+  }
+}
+```
+
+- `start` and `end` are Beijing (UTC+8) calendar days, inclusive, exactly as published,
+- only the public holiday dates matter; adjusted working weekends stay off-peak, because
+  DeepSeek bills weekends as off-peak regardless,
+- leave out a year to keep the bundled dates for it.
+
+After saving the file: menu → **Reload schedule & holiday dates**.
+The next year's notice appears on [gov.cn](https://www.gov.cn/zhengce/) each November.
+
+<p align="center">
+  <img src="docs/images/widget-holiday.png" width="344" alt="Widget during China's National Day showing off-peak with the peak window suspended">
+</p>
 
 ## Build from source
 
@@ -137,24 +185,31 @@ See [the release checklist](docs/RELEASING.md) for verification and distribution
 
 ## Tests and previews
 
-`swift test` covers UTC window boundaries, weekday/weekend transitions, timeline
-continuity, custom schedules and London/Warsaw time conversion.
+`swift test` covers UTC window boundaries, weekday/weekend transitions, Chinese public
+holidays (including a window split by a holiday), timeline continuity, custom schedules
+and London/Warsaw time conversion.
 
 ```sh
 build/DeepSeekPeak.app/Contents/MacOS/DeepSeekPeak --render /tmp/widget.png
 build/DeepSeekPeak.app/Contents/MacOS/DeepSeekPeak --render /tmp/widget-compact.png --compact
+build/DeepSeekPeak.app/Contents/MacOS/DeepSeekPeak --render /tmp/day.png --at 2026-10-15T02:00:00Z
+build/DeepSeekPeak.app/Contents/MacOS/DeepSeekPeak --status --at 2026-10-02T02:00:00Z
 build/DeepSeekPeak.app/Contents/MacOS/DeepSeekPeak --self-test-levels
 ```
 
-The last command reports the window levels and sizes while toggling display modes.
+The `--status` command prints the loaded schedule, the holiday years in use and the
+resulting peak/off-peak state, which makes it the quickest way to check an edited
+`schedule.json` or `holidays.json`. `--at` renders or reports any date, so holiday
+behaviour can be inspected without waiting for October. The last command reports the
+window levels and sizes while toggling display modes.
 
 ## Project layout
 
 ```text
 Package.swift                  SwiftPM package
-Sources/DeepSeekPeakCore/       Schedule engine and time formatting
+Sources/DeepSeekPeakCore/       Schedule engine, holiday calendar and time formatting
 Sources/DeepSeekPeak/           AppKit + SwiftUI application
-Tests/DeepSeekPeakCoreTests/    Schedule tests
+Tests/DeepSeekPeakCoreTests/    Schedule and Chinese holiday tests
 Resources/Info.plist            Application metadata
 scripts/                       Build, local install and release packaging
 ```

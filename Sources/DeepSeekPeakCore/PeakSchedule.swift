@@ -43,24 +43,59 @@ public struct PeakRule: Codable, Hashable, Sendable {
 public struct PeakSchedule: Codable, Hashable, Sendable {
     public var rules: [PeakRule]
     public var note: String?
+    /// When true, peak windows that fall on an official Chinese public holiday are
+    /// billed as off-peak, exactly as DeepSeek's price list states.
+    public var excludeChineseHolidays: Bool
+    /// Holiday dates used by `excludeChineseHolidays`. Never written to schedule.json:
+    /// it has its own file and its own yearly update cycle.
+    public var holidays: HolidayCalendar
 
-    public init(rules: [PeakRule], note: String? = nil) {
+    public init(rules: [PeakRule],
+                note: String? = nil,
+                excludeChineseHolidays: Bool = true,
+                holidays: HolidayCalendar = .official) {
         self.rules = rules
         self.note = note
+        self.excludeChineseHolidays = excludeChineseHolidays
+        self.holidays = holidays
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case rules
+        case note
+        case excludeChineseHolidays
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rules = try container.decode([PeakRule].self, forKey: .rules)
+        note = try container.decodeIfPresent(String.self, forKey: .note)
+        // Schedules written before holiday support (or by hand) keep DeepSeek's rule.
+        excludeChineseHolidays = try container.decodeIfPresent(Bool.self, forKey: .excludeChineseHolidays) ?? true
+        holidays = .official
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(rules, forKey: .rules)
+        try container.encodeIfPresent(note, forKey: .note)
+        try container.encode(excludeChineseHolidays, forKey: .excludeChineseHolidays)
     }
 
     /// Monday through Friday.
     public static let weekdaysOnly: Set<Int> = [2, 3, 4, 5, 6]
 
-    /// Official DeepSeek API schedule (retrieved 2026-09-10 from https://api-docs.deepseek.com/quick_start/pricing):
-    /// "Peak hours are 01:00 - 04:00 and 06:00 - 10:00 UTC, Monday through Friday (all other hours are off-peak)."
-    /// Off-peak rates are half of the peak rates.
+    /// Official DeepSeek API schedule (checked 2026-10-01 at https://api-docs.deepseek.com/quick_start/pricing):
+    /// "Peak hours are 01:00 - 04:00 and 06:00 - 10:00 UTC, Monday through Friday, excluding
+    /// Chinese public holidays. All other hours are off-peak, including weekends and Chinese
+    /// public holidays in full." Off-peak rates are half of the peak rates.
     public static let deepSeekDefault = PeakSchedule(
         rules: [
             PeakRule(weekdays: weekdaysOnly, from: (1, 0), to: (4, 0)),
             PeakRule(weekdays: weekdaysOnly, from: (6, 0), to: (10, 0))
         ],
-        note: "Peak: 01:00-04:00 and 06:00-10:00 UTC, Mon-Fri. Outside those windows rates are 50% lower."
+        note: "Peak: 01:00-04:00 and 06:00-10:00 UTC, Mon-Fri, excluding Chinese public holidays. "
+            + "Outside those windows rates are 50% lower."
     )
 
     public var isEmpty: Bool { rules.isEmpty }
@@ -100,8 +135,16 @@ public struct RateStatus: Hashable, Sendable {
     public let nextPeakEnd: Date?
     /// Segments from "now" to the horizon, alternating peak / off-peak.
     public let timeline: [RateSegment]
+    /// Chinese public holiday covering the current Beijing day, if any. Peak windows
+    /// are suspended for the whole holiday.
+    public let activeHoliday: ChineseHoliday?
+    /// Set when the holiday dates for an upcoming Beijing year are not known yet, so
+    /// the app can say that peak windows are only an assumption for that year.
+    public let holidayDataMissingYear: Int?
 
     public var isPeak: Bool { period == .peak }
+    /// True when the current off-peak stretch is a holiday, not a normal daily gap.
+    public var isHolidaySuspended: Bool { !isPeak && activeHoliday != nil }
 
     public func remaining(at now: Date) -> TimeInterval {
         max(0, windowEnd.timeIntervalSince(now))
@@ -172,7 +215,42 @@ public extension PeakSchedule {
                 merged.append(interval)
             }
         }
+
+        // DeepSeek bills Chinese public holidays as off-peak in full.
+        if excludeChineseHolidays, !holidays.coveredYears.isEmpty {
+            let holidaysInRange = holidays.holidayIntervals(from: from.addingTimeInterval(-86_400),
+                                                           to: to.addingTimeInterval(86_400))
+            if !holidaysInRange.isEmpty {
+                merged = Self.subtracting(holidaysInRange, from: merged)
+            }
+        }
         return merged
+    }
+
+    /// Removes `holes` from `intervals`, splitting an interval when a holiday falls inside it.
+    private static func subtracting(_ holes: [DateInterval], from intervals: [DateInterval]) -> [DateInterval] {
+        var result: [DateInterval] = []
+        for interval in intervals {
+            var pieces = [interval]
+            for hole in holes where hole.intersects(interval) {
+                var remaining: [DateInterval] = []
+                for piece in pieces {
+                    // Build both halves only when they are non-empty: NSDateInterval
+                    // rejects an end that precedes its start.
+                    let leftEnd = min(piece.end, hole.start)
+                    if leftEnd > piece.start {
+                        remaining.append(DateInterval(start: piece.start, end: leftEnd))
+                    }
+                    let rightStart = max(piece.start, hole.end)
+                    if rightStart < piece.end {
+                        remaining.append(DateInterval(start: rightStart, end: piece.end))
+                    }
+                }
+                pieces = remaining
+            }
+            result.append(contentsOf: pieces)
+        }
+        return result.filter { $0.duration > 0 }.sorted { $0.start < $1.start }
     }
 
     /// Peak/off-peak segments covering exactly [from, to].
@@ -205,6 +283,12 @@ public extension PeakSchedule {
         let peaks = peakIntervals(from: now.addingTimeInterval(-8 * 86_400),
                                   to: now.addingTimeInterval(15 * 86_400))
         let timeline = segmented(from: now, to: now.addingTimeInterval(horizon), peaks: peaks)
+        let holiday = excludeChineseHolidays ? holidays.holiday(onBeijingDayContaining: now) : nil
+        // "Next peak" looks up to three weeks ahead, so an unpublished year matters as
+        // soon as it starts inside that range.
+        let missingYear = excludeChineseHolidays && !rules.isEmpty
+            ? holidays.firstYearWithoutData(from: now, to: now.addingTimeInterval(21 * 86_400))
+            : nil
 
         if let current = peaks.first(where: { $0.start <= now && now < $0.end }) {
             let following = peaks.first(where: { $0.start >= current.end })
@@ -213,7 +297,9 @@ public extension PeakSchedule {
                               windowEnd: current.end,
                               nextPeakStart: following?.start,
                               nextPeakEnd: following?.end,
-                              timeline: timeline)
+                              timeline: timeline,
+                              activeHoliday: holiday,
+                              holidayDataMissingYear: missingYear)
         }
 
         let next = peaks.first(where: { $0.start > now })
@@ -225,7 +311,24 @@ public extension PeakSchedule {
                           windowEnd: windowEnd,
                           nextPeakStart: next?.start,
                           nextPeakEnd: next?.end,
-                          timeline: timeline)
+                          timeline: timeline,
+                          activeHoliday: holiday,
+                          holidayDataMissingYear: missingYear)
+    }
+
+    /// True when the Beijing day containing `date` would carry peak windows if
+    /// Chinese public holidays were not excluded, i.e. a peak day that a holiday
+    /// suspends. Used to explain a skipped peak instead of staying silent.
+    func wouldBePeakDayWithoutHolidays(on date: Date) -> Bool {
+        guard excludeChineseHolidays, holidays.holiday(onBeijingDayContaining: date) != nil else {
+            return false
+        }
+        var raw = self
+        raw.excludeChineseHolidays = false
+        let calendar = DeepSeekClock.calendar(in: HolidayCalendar.beijing)
+        guard let dayStart = calendar.date(from: calendar.dateComponents([.year, .month, .day], from: date)),
+              let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return false }
+        return !raw.peakIntervals(from: dayStart, to: dayEnd).isEmpty
     }
 
     /// Upcoming peak windows (full ranges, not clipped).
